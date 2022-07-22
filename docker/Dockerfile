@@ -10,6 +10,13 @@ ENV TORCHVISION_VERSION=0.11.1+cu113
 ENV CUDNN_VERSION=8.2.1.32-1+cuda11.3
 ENV NCCL_VERSION=2.9.9-1+cuda11.3
 
+# fix apt update connect break down for chinese user
+RUN mv /etc/apt/sources.list /etc/apt/sources.list.bak
+RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ bionic main restricted universe multiverse" >> /etc/apt/sources.list
+RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ bionic-updates main restricted universe multiverse" >>/etc/apt/sources.list
+RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ bionic-backports main restricted universe multiverse" >>/etc/apt/sources.list
+RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ bionic-security main restricted universe multiverse" >>/etc/apt/sources.list
+
 # Install basic libraries
 RUN apt-get update && apt-get install -y \
     build-essential cmake g++-4.8 git curl docker.io vim wget ca-certificates
