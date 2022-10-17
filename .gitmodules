@@ -1,3 +1,6 @@
 [submodule "externals/camviz"]
 	path = externals/camviz
 	url = https://github.com/TRI-ML/camviz.git
+[submodule "externals/dgp"]
+	path = externals/dgp
+	url = https://github.com/TRI-ML/dgp.git

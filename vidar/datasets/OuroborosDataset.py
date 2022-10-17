@@ -4,6 +4,9 @@ import os
 import pickle
 
 import numpy as np
+import sys
+sys.path.append(os.getcwd()+'/externals/dgp')
+sys.path.append(os.getcwd())
 from dgp.utils.camera import Camera
 from dgp.utils.pose import Pose
 

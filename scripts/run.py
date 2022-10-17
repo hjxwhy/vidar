@@ -1,7 +1,8 @@
 # TRI-VIDAR - Copyright 2022 Toyota Research Institute.  All rights reserved.
 
 import os
-
+import sys
+sys.path.append(os.getcwd())
 import fire
 import torch
 

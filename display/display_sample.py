@@ -3,6 +3,10 @@
 import json
 
 import numpy as np
+import sys
+import os
+sys.path.append('./externals/camviz')
+sys.path.append(os.getcwd())
 from camviz import BBox3D
 from camviz import Camera as CameraCV
 from camviz import Draw
