@@ -106,7 +106,6 @@ class OuroborosDataset(BaseDataset):
         self.tag = 'ouroboros' if tag is None else tag
 
         cameras = [c if is_str(c) else 'camera_%02d' % c for c in self.cameras]
-
         # Store variables
         self.split = split
         self.dataset_idx = 0

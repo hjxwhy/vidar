@@ -10,7 +10,7 @@ train_selfsup_6cams:
         pin_memory: True
         num_workers: 16
     context: [-1,1]
-    labels: [depth]
+    labels: [depth, 'pose']
     cameras: [[1],[5],[6],[7],[8],[9]]
     depth_type: [lidar]
     repeat: [100]

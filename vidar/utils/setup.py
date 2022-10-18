@@ -99,7 +99,7 @@ def setup_dataset(cfg, root='vidar/datasets', verbose=False):
     dataset : Dataset
         Dataset ready to go
     """
-    shared_keys = ['context', 'labels', 'labels_context']
+    shared_keys = ['context', 'labels', 'labels_context', 'cameras']
 
     num_datasets = 0
     for key, val in cfg.__dict__.items():
