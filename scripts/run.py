@@ -17,9 +17,9 @@ def train(cfg, **kwargs):
 
     cfg = read_config(cfg, **kwargs)
 
-    # wrapper = Wrapper(cfg, verbose=True)
-    # trainer = Trainer(cfg)
-    # trainer.learn(wrapper)
+    wrapper = Wrapper(cfg, verbose=True)
+    trainer = Trainer(cfg)
+    trainer.learn(wrapper)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 train_selfsup_6cams:
     name: [Ouroboros]
-    path: [/data/vidar/DDAD/ddad.json]
+    path: [/media/hjx/dataset/DDAD/ddad_train_val/ddad.json]
     split: [train]
     augmentation:
         jittering: [0.2, 0.2, 0.2, 0.05]
@@ -16,7 +16,7 @@ train_selfsup_6cams:
     repeat: [100]
 validation_6cams:
     name: [Ouroboros]
-    path: [/data/vidar/DDAD/ddad.json]
+    path: [/media/hjx/dataset/DDAD/ddad_train_val/ddad.json]
     split: [val]
     augmentation:
         resize: [384, 640]

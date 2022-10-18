@@ -11,6 +11,12 @@ pyquaternion==0.9.9
 pandas==1.1.5 
 einops==0.3.2 
 pygame==2.0.1
+xarray==0.16.2
+diskcache==5.2.1
+boto3==1.17.83
+tenacity==7.0.0
+pycocotools==2.0.2 
+awscli==1.19.101 
 # PyOpenGL==3.1.5
 # PyOpenGL-accelerate==3.1.5
 # pytorch3d
