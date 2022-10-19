@@ -1,5 +1,5 @@
 depth_splitname:
-    folder: /data/vidar/save
+    folder: ./data/vidar/save
     naming: splitname
     rgb: [tgt]
     depth: [viz,npz]

@@ -2,7 +2,7 @@
 
 import os
 import pickle
-
+import time
 import numpy as np
 import sys
 sys.path.append(os.getcwd()+'/externals/dgp')

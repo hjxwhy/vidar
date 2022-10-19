@@ -11,7 +11,7 @@ from vidar.core.wrapper import Wrapper
 from vidar.utils.config import read_config
 
 
-def train(cfg, **kwargs):
+def train(cfg='configs/papers/fsm/train_ddad.yaml', **kwargs):
 
     os.environ['DIST_MODE'] = 'gpu' if torch.cuda.is_available() else 'cpu'
 

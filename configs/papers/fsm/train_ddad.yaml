@@ -1,6 +1,6 @@
 wrapper:
     recipe: wrapper|default
-    max_epochs: 1
+    max_epochs: 30
     validate_first: False
 arch:
     model:
@@ -27,6 +27,13 @@ optimizers:
 datasets:
     train:
         recipe: datasets/ddad|train_selfsup_6cams
+        dataloader:
+            batch_size: 8
     validation:
         recipe: datasets/ddad|validation_6cams
-
+# wandb:
+#     recipe: wandb|default
+checkpoint:
+    recipe: checkpoint|default_local
+save:
+    recipe: save|depth_splitname

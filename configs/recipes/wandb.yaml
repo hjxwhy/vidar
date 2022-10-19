@@ -1,5 +1,6 @@
 default:
-    folder: /data/vidar/wandb
-    entity: tri
-    project: vidar
+    folder: ./data/vidar/wandb
+    entity: jx_huang
+    project: fsm-new
+    name: vidar
     num_validation_logs: 5
