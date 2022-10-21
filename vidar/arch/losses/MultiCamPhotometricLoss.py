@@ -18,6 +18,10 @@ class MultiCamPhotometricLoss(MultiViewPhotometricLoss):
 
     def warp(self, rgb_context, inv_depths, cam, cam_context,
              scene_flow=None, with_mask=True):
+        '''rgb_context: [[tensor[1, 3, H, W] * 4] * 2]
+           inv_depths: [tensor[1, 1, H, W]*4]
+           cam: Camera
+           cam_context: [Camera * 2]'''
         # Initialize empty warp and mask list
         warps_context, masks_context = [], []
         # If mask is available, use it instead of calculating
@@ -130,10 +134,18 @@ class MultiCamPhotometricLoss(MultiViewPhotometricLoss):
     def forward(self, rgb, rgb_context, inv_depths,
                 cam, cam_context, return_logs=False, progress=0.0,
                 opt_flow=None, scene_flow=None, with_mask=False, automask=None):
+        '''rgb:[1, 3, H, W]
+           rgb_context:[tensor[1, 3, H, W] * 2]
+           inv_depth: [tensor[1, 1, H, W]*4]
+           cam: Camera
+           cam_context: [Camera * 2]
+           with_mask: [[tensor[1, 2, H, W] * 4] * 2]'''
         # Initialize photometric losses
         photometric_losses = [[] for _ in range(self.n)]
         unwarped_photometric_losses = [[] for _ in range(self.n)]
         # Create RGB scales
+        # rgbs: [tensor[1, 3, H, W] * 4]
+        # rgbs_context: [[tensor[1, 3, H, W] * 4] * 2]
         rgbs = match_scales(rgb, inv_depths, self.n, align_corners=self.align_corners)
         rgbs_context = [match_scales(rgb, inv_depths, self.n, align_corners=self.align_corners)
                         for rgb in rgb_context]
@@ -147,14 +159,16 @@ class MultiCamPhotometricLoss(MultiViewPhotometricLoss):
             for i in range(self.n):
                 if with_mask:
                     # Apply mask if available
-                    photometric_loss[i][~masks_context[j][i]] = self.inf
+                    # photometric_loss[i][~masks_context[j][i]] = self.inf
+                    photometric_loss[i] *= masks_context[j][i]
                 # Stack photometric losses for each scale
                 photometric_losses[i].append(photometric_loss[i])
             # If using automask, calculate and store unwarped losses
             if self.automask_loss and automask is not False:
                 unwarped_image_loss = self.calc_photometric_loss(rgbs_context[j], rgbs)
                 for i in range(self.n):
-                    unwarped_photometric_losses[i].append(unwarped_image_loss[i])
+                    # unwarped_photometric_losses[i].append(unwarped_image_loss[i])
+                    unwarped_photometric_losses[i].append(unwarped_image_loss[i] * masks_context[j][i])
         # Calculate reduced photometric loss
         reduced_loss, masked_loss = self.reduce_photometric_loss_min(
             photometric_losses, unwarped_photometric_losses)

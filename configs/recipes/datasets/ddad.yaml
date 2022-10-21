@@ -2,6 +2,7 @@ train_selfsup_6cams:
     name: [Ouroboros]
     path: [/media/hjx/dataset/DDAD/ddad_train_val/ddad.json]
     split: [train]
+    masks: ['./data/masks/ddad']
     augmentation:
         jittering: [0.2, 0.2, 0.2, 0.05]
         resize: [384, 640]
@@ -10,7 +11,7 @@ train_selfsup_6cams:
         pin_memory: True
         num_workers: 8
     context: [-1,1]
-    labels: [depth, 'pose']
+    labels: [pose]
     cameras: [[1],[5],[6],[7],[8],[9]]
     depth_type: [lidar]
     repeat: [1]
@@ -18,6 +19,7 @@ validation_6cams:
     name: [Ouroboros]
     path: [/media/hjx/dataset/DDAD/ddad_train_val/ddad.json]
     split: [val]
+    masks: ['./data/masks/ddad']
     augmentation:
         resize: [384, 640]
     dataloader:

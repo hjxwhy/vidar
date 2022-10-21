@@ -1,7 +1,7 @@
 # TRI-VIDAR - Copyright 2022 Toyota Research Institute.  All rights reserved.
 
 import random
-
+import os
 import numpy as np
 import torch
 
@@ -10,10 +10,10 @@ from vidar.arch.models.BaseModel import BaseModel
 from vidar.arch.networks.layers.fsm.camera import Camera
 from vidar.arch.networks.layers.fsm.pose import Pose
 from vidar.arch.networks.layers.fsm.utils import \
-    CameraNormalizer, flip_batch_input, flip_output, filter_dict, coords_from_motion, mask_from_coords
+    CameraNormalizer, flip_batch_input, flip_output, filter_dict, coords_from_motion, mask_from_coords, mask_from_mask
 from vidar.utils.depth import depth2inv, inv2depth
 from vidar.utils.types import is_list, is_seq
-
+from vidar.utils.read import read_image
 
 def split_batch(tensor, n=1):
     """Split a tensor batch-wise"""
@@ -86,7 +86,10 @@ class FSMModel(BaseModel):
 
         norm_focal = []
         self.focal = None if len(norm_focal) == 0 else CameraNormalizer(focal=norm_focal)
-
+        self.cameras = [[1],[5],[6],[7],[8],[9]]
+        mask = torch.stack([torch.from_numpy(np.array(read_image(os.path.join(
+                        './data/masks/ddad', '%02d.png' % i[0])))) for i in self.cameras])
+        self.mask = mask.unsqueeze(1)
         pairs = [
             [0, 1], [1, 0],
             [0, 2], [2, 0],
@@ -95,6 +98,7 @@ class FSMModel(BaseModel):
             [3, 5], [5, 3],
             [4, 5], [5, 4],
         ]
+        self.neighbors = torch.tensor([[1, 3, 0, 5, 2, 4], [2, 0, 4, 1, 5, 3]])
 
         stereo_weight = 0.1
         stereo_context = True
@@ -160,7 +164,8 @@ class FSMModel(BaseModel):
     def forward(self, batch, return_logs=False, progress=0.0, **kwargs):
 
         new_batch = {}
-        new_batch['rgb'] = batch['rgb'][0]
+        new_batch['rgb'] = batch['rgb'][0]  # [B, N, C, H, W]
+        new_batch['mask'] = batch['mask']
         if self.training:
             new_batch['rgb_context'] = [batch['rgb'][1], batch['rgb'][-1]]
             new_batch['pose'] = batch['pose'][0]
@@ -169,13 +174,19 @@ class FSMModel(BaseModel):
         new_batch['filename'] = batch['filename']
         batch = new_batch
 
-        if self.training:
-            batch['rgb'] = batch['rgb'][0]
-            batch['rgb_context'] = [b[0] for b in batch['rgb_context']]
-            batch['pose'] = batch['pose'][0]
-            batch['pose_context'] = [b[0] for b in batch['pose_context']]
-            batch['intrinsics'] = batch['intrinsics'][0]
+        B, N, C, H, W = batch['rgb'].shape
+        batch['rgb'] = batch['rgb'].reshape([-1, *batch['rgb'].shape[2:]])
+        batch['intrinsics'] = batch['intrinsics'].reshape([-1, *batch['intrinsics'].shape[2:]])
+        batch['mask'] = batch['mask'].reshape([-1, *batch['mask'].shape[2:]])
 
+        if self.training:
+            # batch['rgb'] = batch['rgb'][0]
+            batch['rgb_context'] = [b.reshape([-1, *b.shape[2:]]) for b in batch['rgb_context']]
+            batch['pose'] = batch['pose'].reshape([-1, *batch['pose'].shape[2:]])
+            batch['pose_context'] = [b.reshape([-1, *b.shape[2:]]) for b in batch['pose_context']]
+            # batch['intrinsics'] = batch['intrinsics'].reshape([-1, *batch['intrinsics'].shape[2:]])
+
+        # depth(four scale depth predict, 0 is the final): [tensor[6, 1, H, W]*4]
         if self.networks['depth'] is not None:
             output_self_sup = self.forward2(batch)
             depth = inv2depth(output_self_sup['inv_depths'])
@@ -206,101 +217,163 @@ class FSMModel(BaseModel):
             pose_context = output_self_sup['poses']
 
         for i in range(len(pose_context)):
-            pose_context[i] = pose_context[i].mat
+            pose_context[i] = pose_context[i].mat  # [6, 4, 4]
 
-        rgb_i, rgb_context_i = split_batch(rgb), split_batch(rgb_context)
-        pose_i, pose_context_i = split_batch(pose), split_batch(pose_context)
-        intrinsics_i, inv_depth_i = split_batch(intrinsics), depth2inv(split_batch(depth))
-        cam_i, cam_context_i = global_cameras(intrinsics_i, pose_i, pose_context_i, hw=rgb.shape[2:])
-
-        _, pose_context_i_gt = split_batch(pose), split_batch(pose_context_gt)
-        _, cam_context_i_gt = global_cameras(intrinsics_i, pose_i, pose_context_i_gt, hw=rgb.shape[2:])
-
-        n_tgt = len(rgb_i)
-
-        mono_coords = [coords_from_motion(
-            cam_context_i[tgt], inv2depth(inv_depth_i[tgt]), cam_i[tgt])
-            for tgt in range(n_tgt)]
-        mono_masks = [mask_from_coords(coords) for coords in mono_coords]
-
-        filename = batch['filename']
-        try:
-            filename = ['camera' + f[0].split('/')[-2][-3:]+ '_mask.npy' for f in filename]
-            # filename = ['camera' + f.split('/')[-2][-3:]+ '_mask.npy' for f in filename]
-            masks = [torch.tensor(np.load(f)).unsqueeze(0).unsqueeze(0) for f in filename]
-            for tgt in range(n_tgt):
-                for i in range(len(mono_masks[tgt])):
-                    for j in range(len(mono_masks[tgt][i])):
-                        for k in range(len(mono_masks[tgt][i][j])):
-                            # write_image('debug/camera_%d/mask_%d_%d_%d.png' % (tgt, i, j, k),
-                            #             mono_masks[tgt][i][j][k])
-                            resized_mask = torch.nn.functional.interpolate(
-                                masks[tgt], mono_masks[tgt][i][j][k].shape[1:], mode='nearest').squeeze(0).bool()
-                            mono_masks[tgt][i][j][k] *= resized_mask.to(mono_masks[tgt][i][j][k].device)
-            with_masks = True
-        except:
-            with_masks = False
-            pass
+        # # rgb_i: tuple(tensor[1, 3, H, W]*6), rgb_context_i:[[tensor[1, 3, H, W] * 2]*6]
+        # rgb_i, rgb_context_i = split_batch(rgb), split_batch(rgb_context)
+        # # pose_i: tuple(tensor[1, 4, 4] * 6), pose_context_i:[[tensor[1, 4, 4] * 2]*6]
+        # pose_i, pose_context_i = split_batch(pose), split_batch(pose_context)
+        # # intrinsics_i: tuple(tensor[1, 3, 3] * 6), inv_depth_i(4 is different scale): [[tensor[1, 1, H, W]*4]*6]
+        # intrinsics_i, inv_depth_i = split_batch(intrinsics), depth2inv(split_batch(depth))
+        # # cam_i: [Camera * 6], cam_context_i: [[Camera * 2] * 6]
+        # cam_i, cam_context_i = global_cameras(intrinsics_i, pose_i, pose_context_i, hw=rgb.shape[2:])
+        #
+        # _, pose_context_i_gt = split_batch(pose), split_batch(pose_context_gt)
+        # _, cam_context_i_gt = global_cameras(intrinsics_i, pose_i, pose_context_i_gt, hw=rgb.shape[2:])
+        #
+        # n_tgt = len(rgb_i)
+        #
+        # # mono_coords: [[[tensor[1, 2, H, W] * 4] * 2] * 6]
+        # mono_coords = [coords_from_motion(
+        #     cam_context_i[tgt], inv2depth(inv_depth_i[tgt]), cam_i[tgt])
+        #     for tgt in range(n_tgt)]
+        # # mono_masks: [[[tensor[1, 2, H, W] * 4] * 2] * 6]
+        # mono_masks = [mask_from_coords(coords) for coords in mono_coords]
+        #
+        # filename = batch['filename']
+        # try:
+        #     filename = ['camera' + f[0].split('/')[-2][-3:]+ '_mask.npy' for f in filename]
+        #     # filename = ['camera' + f.split('/')[-2][-3:]+ '_mask.npy' for f in filename]
+        #     masks = [torch.tensor(np.load(f)).unsqueeze(0).unsqueeze(0) for f in filename]
+        #     for tgt in range(n_tgt):
+        #         for i in range(len(mono_masks[tgt])):
+        #             for j in range(len(mono_masks[tgt][i])):
+        #                 for k in range(len(mono_masks[tgt][i][j])):
+        #                     # write_image('debug/camera_%d/mask_%d_%d_%d.png' % (tgt, i, j, k),
+        #                     #             mono_masks[tgt][i][j][k])
+        #                     resized_mask = torch.nn.functional.interpolate(
+        #                         masks[tgt], mono_masks[tgt][i][j][k].shape[1:], mode='nearest').squeeze(0).bool()
+        #                     mono_masks[tgt][i][j][k] *= resized_mask.to(mono_masks[tgt][i][j][k].device)
+        #     with_masks = True
+        # except:
+        #     with_masks = False
+        #     pass
+        # cam:
 
         mono = []
         outputs = []
+        # pose: [B*N, 4, 4], intrinsics: [B*N, 3, 3], pose_context:[B*N, 4, 4] * 2
+        mask = batch['mask']
+        cam, cam_context = global_cameras(intrinsics, pose, pose_context)
+        # mono_coords:
+        mono_coords = coords_from_motion(cam_context, depth, cam)
+        # mono_masks: [[tensor[6, 2, H, W] * 4] * 2]
+        mono_masks = [mask_from_mask(mask, coords) for coords in mono_coords]
+        output = self.multicam_loss(rgb, rgb_context, inv2depth(depth), cam, cam_context, with_mask=mono_masks)
+        mono.append(output['loss'])
 
-        for tgt in range(n_tgt):
-            output = self.multicam_loss(
-                rgb_i[tgt], rgb_context_i[tgt], inv_depth_i[tgt],
-                cam_i[tgt], cam_context_i[tgt], with_mask=mono_masks[tgt])
-            if not torch.isnan(output['loss']):
-                mono.append(output['loss'])
-                outputs.append(output)
+        ################
+        # ind = (torch.arange(0, B) * N).unsqueeze(-1).unsqueeze(-1) + self.neighbors.unsqueeze(0)
+        # left_ind = ind[:, 0, :].flatten().long()
+        # right_ind = ind[:, 1, :].flatten().long()
+
+        # left_cam = Camera(K=intrinsics[left_ind], Twc=pose[left_ind])
+        # right_cam = Camera(K=intrinsics[right_ind], Twc=pose[right_ind])
+        # cam_context = [left_cam, right_cam]
+        # mono_coords = coords_from_motion(cam_context, depth, cam)
+        # mask_ = [mask[left_ind], mask[right_ind]]
+        # mono_masks = [mask_from_mask(m, coords) for m, coords in zip(mask_, mono_coords)]
+        # rgb_context = [rgb[left_ind], rgb[right_ind]]
+        # output = self.multicam_loss(rgb, rgb_context, inv2depth(depth), cam, cam_context, with_mask=mono_masks)
+        # mono.append(self.stereo_weight * output['loss'])
+        # output = self.multicam_loss(depth[0], [depth[0][left_ind].detach(), depth[0][right_ind].detach()], inv2depth(depth), cam, cam_context, with_mask=mono_masks)
+        # mono.append(output['loss'])
+
+        # print(cam_context[0].Twc.shape, cam_context[0].Twc[left_ind].shape)
+        # left_front = Camera(K=intrinsics[left_ind], Twc=Pose(cam_context[0].Twc[left_ind]))
+        # left_back = Camera(K=intrinsics[left_ind], Twc=Pose(cam_context[1].Twc[left_ind]))
+        # cam_context = [left_front, left_back]
+        # mono_coords = coords_from_motion(cam_context, depth, cam)
+        # # mask_ = [mask[left_ind], mask[right_ind]]
+        # mono_masks = [mask_from_mask(m, coords) for m, coords in zip(mask_, mono_coords)]
+        # rgb_context = [batch['rgb_context'][0][left_ind], batch['rgb_context'][0][left_ind]]
+        # output = self.multicam_loss(rgb, rgb_context, inv2depth(depth), cam, cam_context, with_mask=mono_masks)
+        # mono.append(output['loss'])
+
+
+        # right_front = Camera(K=intrinsics[right_ind], Twc=Pose(cam_context[0].Twc[right_ind]))
+        # right_back = Camera(K=intrinsics[right_ind], Twc=Pose(cam_context[1].Twc[right_ind]))
+        # cam_context = [right_front, right_back]
+        # mono_coords = coords_from_motion(cam_context, depth, cam)
+        # # mask_ = [mask[left_ind], mask[right_ind]]
+        # mono_masks = [mask_from_mask(m, coords) for m, coords in zip(mask_, mono_coords)]
+        # rgb_context = [batch['rgb_context'][0][right_ind], batch['rgb_context'][0][right_ind]]
+        # output = self.multicam_loss(rgb, rgb_context, inv2depth(depth), cam, cam_context, with_mask=mono_masks)
+        # mono.append(output['loss'])
+        ################
+
+        # mono = []
+        # outputs = []
+        # # rgb_i: tuple(tensor[1, 3, H, W]*6), rgb_context_i:[[tensor[1, 3, H, W] * 2]*6]
+        # # inv_depth_i: [[tensor[1, 1, H, W]*4]*6]
+        # # cam_i: [Camera * 6], cam_context_i: [[Camera * 2] * 6]
+        # # mono_masks: [[[tensor[1, 2, H, W] * 4] * 2] * 6]
+        # for tgt in range(n_tgt):
+        #     output = self.multicam_loss(
+        #         rgb_i[tgt], rgb_context_i[tgt], inv_depth_i[tgt],
+        #         cam_i[tgt], cam_context_i[tgt], with_mask=mono_masks[tgt])
+        #     if not torch.isnan(output['loss']):
+        #         mono.append(output['loss'])
+        #         outputs.append(output)
 
         stereo = []
-        if not self.stereo_context and self.stereo_weight > 0:
-
-            stereo_coords = [coords_from_motion(
-                [cam_i[src]], inv2depth(inv_depth_i[tgt]), cam_i[tgt])
-                for tgt, src in self.pairs]
-            stereo_masks = [mask_from_coords(coords) for coords in stereo_coords]
-
-            if with_masks:
-                for tgt in range(len(self.pairs)):
-                    for i in range(len(stereo_masks[tgt])):
-                        for j in range(len(stereo_masks[tgt][i])):
-                            for k in range(len(stereo_masks[tgt][i][j])):
-                                hw = stereo_masks[tgt][i][j][k].shape[1:]
-                                h_st, h_fn = int(0.15 * hw[0]), int(0.75 * hw[0])
-                                stereo_masks[tgt][i][j][k][:, :h_st] = 0
-                                stereo_masks[tgt][i][j][k][:, h_fn:] = 0
-
-            for k, (tgt, src) in enumerate(self.pairs):
-                output = self.multicam_loss(
-                    rgb_i[tgt], [rgb_i[src]], inv_depth_i[tgt],
-                    cam_i[tgt], [cam_i[src]], with_mask=stereo_masks[k], automask=False)
-                if not torch.isnan(output['loss']):
-                    stereo.append(self.stereo_weight * output['loss'])
-
-        elif self.stereo_context and self.stereo_weight > 0:
-
-            stereo_coords = [coords_from_motion(
-                [cam_i[src]] + cam_context_i[src], inv2depth(inv_depth_i[tgt]), cam_i[tgt])
-                for tgt, src in self.pairs]
-            stereo_masks = [mask_from_coords(coords) for coords in stereo_coords]
-
-            for tgt in range(len(self.pairs)):
-                for i in range(len(stereo_masks[tgt])):
-                    for j in range(len(stereo_masks[tgt][i])):
-                        for k in range(len(stereo_masks[tgt][i][j])):
-                            hw = stereo_masks[tgt][i][j][k].shape[1:]
-                            h_st, h_fn = int(0.15 * hw[0]), int(0.75 * hw[0])
-                            stereo_masks[tgt][i][j][k][:, :h_st] = 0
-                            stereo_masks[tgt][i][j][k][:, h_fn:] = 0
-
-            for k, (tgt, src) in enumerate(self.pairs):
-                output = self.multicam_loss(
-                    rgb_i[tgt], [rgb_i[src]] + rgb_context_i[src], inv_depth_i[tgt],
-                    cam_i[tgt], [cam_i[src]] + cam_context_i[src], with_mask=stereo_masks[k], automask=False)
-                if not torch.isnan(output['loss']):
-                    stereo.append(self.stereo_weight * output['loss'])
-
+        # if not self.stereo_context and self.stereo_weight > 0:
+        #
+        #     stereo_coords = [coords_from_motion(
+        #         [cam_i[src]], inv2depth(inv_depth_i[tgt]), cam_i[tgt])
+        #         for tgt, src in self.pairs]
+        #     stereo_masks = [mask_from_coords(coords) for coords in stereo_coords]
+        #
+        #     if with_masks:
+        #         for tgt in range(len(self.pairs)):
+        #             for i in range(len(stereo_masks[tgt])):
+        #                 for j in range(len(stereo_masks[tgt][i])):
+        #                     for k in range(len(stereo_masks[tgt][i][j])):
+        #                         hw = stereo_masks[tgt][i][j][k].shape[1:]
+        #                         h_st, h_fn = int(0.15 * hw[0]), int(0.75 * hw[0])
+        #                         stereo_masks[tgt][i][j][k][:, :h_st] = 0
+        #                         stereo_masks[tgt][i][j][k][:, h_fn:] = 0
+        #
+        #     for k, (tgt, src) in enumerate(self.pairs):
+        #         output = self.multicam_loss(
+        #             rgb_i[tgt], [rgb_i[src]], inv_depth_i[tgt],
+        #             cam_i[tgt], [cam_i[src]], with_mask=stereo_masks[k], automask=False)
+        #         if not torch.isnan(output['loss']):
+        #             stereo.append(self.stereo_weight * output['loss'])
+        #
+        # elif self.stereo_context and self.stereo_weight > 0:
+        #
+        #     stereo_coords = [coords_from_motion(
+        #         [cam_i[src]] + cam_context_i[src], inv2depth(inv_depth_i[tgt]), cam_i[tgt])
+        #         for tgt, src in self.pairs]
+        #     stereo_masks = [mask_from_coords(coords) for coords in stereo_coords]
+        #
+        #     for tgt in range(len(self.pairs)):
+        #         for i in range(len(stereo_masks[tgt])):
+        #             for j in range(len(stereo_masks[tgt][i])):
+        #                 for k in range(len(stereo_masks[tgt][i][j])):
+        #                     hw = stereo_masks[tgt][i][j][k].shape[1:]
+        #                     h_st, h_fn = int(0.15 * hw[0]), int(0.75 * hw[0])
+        #                     stereo_masks[tgt][i][j][k][:, :h_st] = 0
+        #                     stereo_masks[tgt][i][j][k][:, h_fn:] = 0
+        #
+        #     for k, (tgt, src) in enumerate(self.pairs):
+        #         output = self.multicam_loss(
+        #             rgb_i[tgt], [rgb_i[src]] + rgb_context_i[src], inv_depth_i[tgt],
+        #             cam_i[tgt], [cam_i[src]] + cam_context_i[src], with_mask=stereo_masks[k], automask=False)
+        #         if not torch.isnan(output['loss']):
+        #             stereo.append(self.stereo_weight * output['loss'])
+        # mono.append(output['loss'])
         losses = mono + stereo
         loss = sum(losses) / len(losses)
         output_self_sup['loss'] = loss.unsqueeze(0)

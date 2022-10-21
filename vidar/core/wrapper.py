@@ -199,7 +199,8 @@ class Wrapper(torch.nn.Module, ABC):
 
         if 'batch' in output:
             batch = output['batch']
-
+        # TODO hard code
+        batch['depth'][0] = batch['depth'][0].reshape([-1, *batch['depth'][0].shape[2:]])
         results = self.evaluate(batch, output, flipped_output)
 
         results = [{

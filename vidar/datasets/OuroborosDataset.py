@@ -346,7 +346,7 @@ class OuroborosDataset(BaseDataset):
         # Reorganize sensors to the right order
         sensor_names = [self.get_current('datum_name', i).lower() for i in range(len(self.sensors))]
         indexes = [sensor_names.index(v) for v in self.sensors]
-        self.sample_dgp = [[s[idx] for idx in indexes] for s in self.sample_dgp]
+        self.sample_dgp = [[s[idx] for idx in indexes] for s in self.sample_dgp] # 根据sensors的名字顺序重排一下sample_dgp
 
         # Loop over all cameras
         samples = []
@@ -354,6 +354,23 @@ class OuroborosDataset(BaseDataset):
 
             # Filename
             filename = self.get_filename(idx, i)
+            '''
+            sample = {
+                'idx': idx,
+                'tag': self.tag,
+                'filename': self.relative_path({0: filename}), # '000008/{}/CAMERA_01/15621793354931452'
+                'splitname': '%s_%010d' % (self.split, idx),
+                'sensor_name': self.get_current('datum_name', i), # camera id name, such as CAMERA_01
+                'rgb': {0: PIL, -1: PIL, 1: PIL},
+                'intrinsics': {0: np.array},
+                'mask': PIL,
+                'extrinsics': {0: np.array, -1: np.array, 1: np.array},
+                'pose': {0: np.array, -1: np.array, 1: np.array},
+                'filename_context': ['000086/{}/CAMERA_08/1567566522168645', '000086/{}/CAMERA_08/1567566522368649']},
+                'depth': {0: np.array, -1: np.array, 1: np.array},
+                'input_depth': {np.array},
+            }
+            '''
 
             # Base sample
             sample = {
@@ -366,8 +383,8 @@ class OuroborosDataset(BaseDataset):
 
             # Image and intrinsics
             sample.update({
-                'rgb': self.get_current('rgb', i, as_dict=True),
-                'intrinsics': self.get_current('intrinsics', i, as_dict=True),
+                'rgb': self.get_current('rgb', i, as_dict=True), # rgb: {0: {PIL.Image}}
+                'intrinsics': self.get_current('intrinsics', i, as_dict=True), # intrinsics: {0: {np.array, size[3, 3]}}
             })
 
             # If masks are returned
@@ -375,9 +392,9 @@ class OuroborosDataset(BaseDataset):
                 sample.update({
                     'mask': read_image(os.path.join(
                         self.masks_path, '%02d.png' % self.cameras[i]))
-                })
+                }) # mask: {PIL.png}
 
-            # If depth is returned
+            # If depth is returned, 'depth' in labels
             if self.with_depth:
                 # Get depth maps
                 depth = self.create_proj_maps(
@@ -387,16 +404,18 @@ class OuroborosDataset(BaseDataset):
                     'depth': {0: depth}
                 })
 
-            # If input depth is returned
+            # If input depth is returned, 'input_depth' in labels
             if self.with_input_depth:
                 sample.update({
                     'input_depth': {0: self.create_proj_maps(
                         filename, i, self.input_depth_idx, self.input_depth_type)[0]}
                 })
 
-            # If pose is returned
+            # If pose is returned, 'pose' in self.labels
             if self.with_pose:
                 sample.update({
+                    # extrinsics: {0: matrix}
+                    # pose: {0: matrix}
                     'extrinsics': {key: val.inverse().matrix for key, val in
                                    self.get_current('extrinsics', i, as_dict=True).items()},
                     'pose': {key: val.inverse().matrix for key, val in
@@ -407,6 +426,7 @@ class OuroborosDataset(BaseDataset):
             if self.with_context:
 
                 # Include context images
+                # rgb: {0:{}, -1:{}, 1: {}}
                 sample['rgb'].update(self.get_context('rgb', i, as_dict=True))
 
                 # Create contexts filenames if extra context is required
@@ -420,6 +440,8 @@ class OuroborosDataset(BaseDataset):
                 # If context pose is returned
                 if self.with_pose:
                     # Get original values to calculate relative motion
+                    # extrinsics: {0: matrix, -1:matrix, 1:matrix}
+                    # pose: {0: matrix, -1:matrix, 1:matrix}
                     inv_orig_extrinsics = Pose.from_matrix(sample['extrinsics'][0]).inverse()
                     sample['extrinsics'].update(
                         {key: (inv_orig_extrinsics * val.inverse()).matrix for key, val in zip(
@@ -486,4 +508,20 @@ class OuroborosDataset(BaseDataset):
             # lidar_sample = self.data_transform(lidar_sample)
 
         # Return sample (stacked if necessary)
+        '''
+        sample = {
+            'idx': list[idx],
+            'tag': list[self.tag],
+            'filename':list[self.relative_path({0: filename})], # '000008/{}/CAMERA_01/15621793354931452'
+            'splitname': list['%s_%010d' % (self.split, idx)],
+            'sensor_name': list[self.get_current('datum_name', i)], # camera id name, such as CAMERA_01
+            'rgb': {0: torch.tensor[N, 3, H, W], -1: torch.tensor[N, 3, H, W], 1: torch.tensor[N, 3, H, W]},
+            'intrinsics': {0: torch.tensor[N, 3, 3]},
+            'mask': torch.tensor[N, 1, H, W],
+            'extrinsics': {0: torch.tensor[N, 4, 4], -1: torch.tensor[N, 4, 4], 1: torch.tensor[N, 4, 4]},
+            'pose': {0: torch.tensor[N, 4, 4], -1: torch.tensor[N, 4, 4], 1: torch.tensor[N, 4, 4]},
+            'filename_context': list[['000086/{}/CAMERA_08/1567566522168645', '000086/{}/CAMERA_08/1567566522368649']},]
+            'depth': {0: torch.tensor[N, 1, H, W], -1: torch.tensor[N, 1, H, W], 1: torch.tensor[N, 1, H, W]},
+            'input_depth': {0: torch.tensor[N, 3, H, W]},,
+        }'''
         return stack_sample(samples, lidar_sample)

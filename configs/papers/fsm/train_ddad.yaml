@@ -28,12 +28,12 @@ datasets:
     train:
         recipe: datasets/ddad|train_selfsup_6cams
         dataloader:
-            batch_size: 8
+            batch_size: 2
     validation:
         recipe: datasets/ddad|validation_6cams
 # wandb:
 #     recipe: wandb|default
-checkpoint:
-    recipe: checkpoint|default_local
-save:
-    recipe: save|depth_splitname
+# checkpoint:
+#     recipe: checkpoint|default_local
+# save:
+#     recipe: save|depth_splitname

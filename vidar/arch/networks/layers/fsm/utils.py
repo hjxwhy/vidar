@@ -100,6 +100,13 @@ def warp_from_coords(tensor, coords, mask=False, mode='bilinear',
     # Returned warped tensor
     return warp
 
+def mask_from_mask(tensor, coords):
+    if is_list(coords):
+        return [mask_from_mask(tensor, coord) for coord in coords]
+
+    warp = warp_from_coords(tensor, coords, mode='nearest')
+    return warp.bool().detach()
+
 
 def filter_dict(dictionary, keywords):
     """
